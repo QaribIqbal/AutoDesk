@@ -1,0 +1,15 @@
+{
+  "name": "clinic-autopilot",
+  "version": "2.0.0",
+  "description": "Done-for-you dental clinic automation: win-back texts, missed-call follow-up and AI receptionist tracking, with an n8n engine.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --no-warnings server.js",
+    "test": "node --no-warnings --test \"test/*.test.mjs\"",
+    "reset-password": "node --no-warnings scripts/reset-password.mjs",
+    "export-workflow": "node --no-warnings scripts/export-workflow.mjs",
+    "build:template": "node --no-warnings scripts/export-workflow.mjs --template"
+  },
+  "engines": { "node": ">=22.5" }
+}

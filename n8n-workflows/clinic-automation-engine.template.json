@@ -1,0 +1,1030 @@
+{
+  "name": "Clinic Automation Engine — Your Clinic",
+  "active": false,
+  "nodes": [
+    {
+      "id": "engine-001",
+      "name": "Note 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        40
+      ],
+      "parameters": {
+        "content": "## Clinic Automation Engine — Your Clinic\nEverything is controlled from the clinic's CRM (messages, opening hours, patient list, test mode, on/off switches). **Don't edit messages here.**\n\n**Setup (once):** pick your Twilio + Gmail credential on the 4 marked nodes if they're not pre-filled → Activate → paste the webhook URLs shown in CRM → Settings → Connect into Twilio / your voice agent.",
+        "height": 300,
+        "width": 400,
+        "color": 4
+      }
+    },
+    {
+      "id": "engine-002",
+      "name": "Note 2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        40
+      ],
+      "parameters": {
+        "content": "### 1 · Win-back campaigns\nThe CRM's **Launch** button calls this. Each eligible patient gets their personalised SMS; every send is logged back to the CRM.",
+        "height": 140,
+        "width": 520,
+        "color": 7
+      }
+    },
+    {
+      "id": "engine-003",
+      "name": "Launch Campaign",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        240
+      ],
+      "webhookId": "clinic-launch",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clinic-launch",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-004",
+      "name": "Get Recipients",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        240
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://YOUR-CRM-ADDRESS/api/n8n/campaigns/' + $json.body.campaign_id + '/recipients' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR-CRM-API-KEY"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-005",
+      "name": "One Item per Patient",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        240
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r = $input.first().json;\nreturn (r.recipients || []).map(x => ({ json: { ...x, campaign_id: r.campaign.id, campaign: r.campaign.name, demo_mode: r.demo_mode, sms_from: r.sms_from } }));"
+      }
+    },
+    {
+      "id": "engine-006",
+      "name": "Test Mode?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        660,
+        240
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-5",
+              "leftValue": "={{ String($json.demo_mode) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-007",
+      "name": "Pretend to Send",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        140
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return $input.all().map(i => ({ json: { ...i.json, status: 'demo_sent', sid: 'DEMO' + Math.random().toString(36).slice(2, 10).toUpperCase() } }));"
+      }
+    },
+    {
+      "id": "engine-008",
+      "name": "Send SMS",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        900,
+        340
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "twilioApi": {
+          "id": "",
+          "name": "Twilio account"
+        }
+      },
+      "parameters": {
+        "resource": "sms",
+        "operation": "send",
+        "from": "={{ $json.sms_from }}",
+        "to": "={{ $json.phone }}",
+        "message": "={{ $json.message }}"
+      }
+    },
+    {
+      "id": "engine-009",
+      "name": "Log SMS to CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        240
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR-CRM-ADDRESS/api/sms",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR-CRM-API-KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $('One Item per Patient').item.json.name, phone: $('One Item per Patient').item.json.phone, message: $('One Item per Patient').item.json.message, treatment: $('One Item per Patient').item.json.treatment, campaign: $('One Item per Patient').item.json.campaign, campaign_id: $('One Item per Patient').item.json.campaign_id, patient_id: $('One Item per Patient').item.json.patient_id, status: $json.status === 'demo_sent' ? 'demo_sent' : ($json.error ? 'failed' : 'sent'), sent_at: new Date().toISOString() }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-010",
+      "name": "Note 10",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        480
+      ],
+      "parameters": {
+        "content": "### 2 · Missed calls\nYour phone system calls this when nobody answers (Twilio status callback, or `{\"caller_number\":\"+61…\"}`). The CRM logs the call, looks the caller up, and decides email vs SMS.",
+        "height": 160,
+        "width": 520,
+        "color": 7
+      }
+    },
+    {
+      "id": "engine-011",
+      "name": "Missed Call",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        700
+      ],
+      "webhookId": "clinic-missed-call",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clinic-missed-call",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-012",
+      "name": "Was It Missed?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        700
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const b = $input.first().json.body || {};\nconst status = String(b.DialCallStatus || b.CallStatus || b.call_status || '').toLowerCase();\nif (status && !['no-answer', 'busy', 'failed', 'canceled'].includes(status)) return []; // answered → nothing to do\nconst number = b.caller_number || b.From || b.from;\nreturn number ? [{ json: { caller_number: number, caller_name: b.caller_name || b.CallerName || '', at: b.at || b.Timestamp || '' } }] : [];"
+      }
+    },
+    {
+      "id": "engine-013",
+      "name": "Log Call & Get Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        700
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR-CRM-ADDRESS/api/n8n/missed-call",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR-CRM-API-KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-014",
+      "name": "Follow Up?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        660,
+        700
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-13",
+              "leftValue": "={{ String($json.skip) }}",
+              "rightValue": "false",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-015",
+      "name": "Wait Before Following Up",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        880,
+        700
+      ],
+      "webhookId": "clinic-wait",
+      "parameters": {
+        "resume": "afterTimeInterval",
+        "amount": "={{ $json.delay_seconds }}",
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "engine-016",
+      "name": "Test Mode (calls)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        700
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-15",
+              "leftValue": "={{ String($json.demo_mode) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-017",
+      "name": "Email on File?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        800
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-16",
+              "leftValue": "={{ $json.channel }}",
+              "rightValue": "email",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-018",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1540,
+        720
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      },
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json.email.to }}",
+        "subject": "={{ $json.email.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.email.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "engine-019",
+      "name": "Send Text-back",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        900
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "twilioApi": {
+          "id": "",
+          "name": "Twilio account"
+        }
+      },
+      "parameters": {
+        "resource": "sms",
+        "operation": "send",
+        "from": "={{ $json.sms.from }}",
+        "to": "={{ $json.sms.to }}",
+        "message": "={{ $json.sms.body }}"
+      }
+    },
+    {
+      "id": "engine-020",
+      "name": "Report Follow-up",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1780,
+        700
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://YOUR-CRM-ADDRESS/api/n8n/calls/' + $('Log Call & Get Message').item.json.call_id + '/followup' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR-CRM-API-KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ status: $('Log Call & Get Message').item.json.demo_mode ? 'demo_logged' : ($json.error ? 'failed' : 'sent') }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-021",
+      "name": "Note 21",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1020
+      ],
+      "parameters": {
+        "content": "### 3 · Patient replies\nPaste this webhook into your Twilio number → Messaging → \"A message comes in\". STOP = automatic opt-out. YES = the owner gets a text.",
+        "height": 150,
+        "width": 520,
+        "color": 7
+      }
+    },
+    {
+      "id": "engine-022",
+      "name": "Incoming SMS",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1220
+      ],
+      "webhookId": "clinic-sms-reply",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clinic-sms-reply",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-023",
+      "name": "Log Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        1220
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR-CRM-ADDRESS/api/n8n/sms-reply",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR-CRM-API-KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ from: $json.body.From, body: $json.body.Body }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-024",
+      "name": "Answer Twilio",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        1220
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "<Response></Response>",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/xml"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "engine-025",
+      "name": "Hot Lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        660,
+        1220
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-24",
+              "leftValue": "={{ String(!!$json.alert_owner && !$json.demo_mode) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-026",
+      "name": "Text the Owner",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        880,
+        1200
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "twilioApi": {
+          "id": "",
+          "name": "Twilio account"
+        }
+      },
+      "parameters": {
+        "resource": "sms",
+        "operation": "send",
+        "from": "={{ $json.sms_from }}",
+        "to": "={{ $json.owner_phone }}",
+        "message": "={{ $json.alert_text }}"
+      }
+    },
+    {
+      "id": "engine-027",
+      "name": "Note 27",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1400
+      ],
+      "parameters": {
+        "content": "### 4 · Voice agent · bookings · connection test\nVoice agent end-of-call webhook → log the call (after-hours is worked out from clinic hours). Booking webhook → mark booked. Test → used by the CRM's \"Test connection\" button.",
+        "height": 170,
+        "width": 520,
+        "color": 7
+      }
+    },
+    {
+      "id": "engine-028",
+      "name": "Voice Agent Call",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1620
+      ],
+      "webhookId": "clinic-voice-call",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clinic-voice-call",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-029",
+      "name": "Log Voice Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        1620
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR-CRM-ADDRESS/api/n8n/voice-call",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR-CRM-API-KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-030",
+      "name": "Booking Confirmed",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1800
+      ],
+      "webhookId": "clinic-booking",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clinic-booking",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-031",
+      "name": "Log Booking",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        1800
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR-CRM-ADDRESS/api/n8n/booking",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR-CRM-API-KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-032",
+      "name": "Connection Test",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1980
+      ],
+      "webhookId": "clinic-ping",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clinic-ping",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "engine-033",
+      "name": "Tell CRM We're Connected",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        1980
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR-CRM-ADDRESS/api/n8n/ping",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR-CRM-API-KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ok: true }) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Launch Campaign": {
+      "main": [
+        [
+          {
+            "node": "Get Recipients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Recipients": {
+      "main": [
+        [
+          {
+            "node": "One Item per Patient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One Item per Patient": {
+      "main": [
+        [
+          {
+            "node": "Test Mode?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Mode?": {
+      "main": [
+        [
+          {
+            "node": "Pretend to Send",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send SMS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pretend to Send": {
+      "main": [
+        [
+          {
+            "node": "Log SMS to CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send SMS": {
+      "main": [
+        [
+          {
+            "node": "Log SMS to CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Missed Call": {
+      "main": [
+        [
+          {
+            "node": "Was It Missed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Was It Missed?": {
+      "main": [
+        [
+          {
+            "node": "Log Call & Get Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Call & Get Message": {
+      "main": [
+        [
+          {
+            "node": "Follow Up?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Follow Up?": {
+      "main": [
+        [
+          {
+            "node": "Wait Before Following Up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Following Up": {
+      "main": [
+        [
+          {
+            "node": "Test Mode (calls)?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Mode (calls)?": {
+      "main": [
+        [
+          {
+            "node": "Report Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email on File?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email on File?": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Text-back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email": {
+      "main": [
+        [
+          {
+            "node": "Report Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Text-back": {
+      "main": [
+        [
+          {
+            "node": "Report Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Incoming SMS": {
+      "main": [
+        [
+          {
+            "node": "Log Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Reply": {
+      "main": [
+        [
+          {
+            "node": "Answer Twilio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Twilio": {
+      "main": [
+        [
+          {
+            "node": "Hot Lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hot Lead?": {
+      "main": [
+        [
+          {
+            "node": "Text the Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Voice Agent Call": {
+      "main": [
+        [
+          {
+            "node": "Log Voice Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Booking Confirmed": {
+      "main": [
+        [
+          {
+            "node": "Log Booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Connection Test": {
+      "main": [
+        [
+          {
+            "node": "Tell CRM We're Connected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
